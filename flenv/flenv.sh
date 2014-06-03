@@ -1,6 +1,8 @@
 #!/bin/bash
 #  Utility/example to read environment settings from a Parallella flash memory
 #  5/22/14 Fred Huettig
+#
+#  Option: -all  - list all var's from flash
 
 set -e
 
@@ -10,7 +12,7 @@ ENVSTART=5111814
 ENVSIZE=1024
 SKUVAR="AdaptevaSKU"
 
-if [ ! -b $FLASHNODE ] ; then
+if [ ! -b $FLASHNODE -a ! -c $FLASHNODE ] ; then
     if [ -e $FLASHNODE ] ; then
 	echo "ERROR: Something's in the way of $FLASHNODE"
 	exit 1
@@ -25,11 +27,13 @@ ENV+=$'\n'   # Make sure there is a \n at the end
 
 # I'm sure there is a more efficient way to do this,
 # but the following should be reasonably portable
-ETEMP=$ENV
-while [ "$ETEMP" ] ; do
-    echo "> ${ETEMP%%$'\n'*}"
-    ETEMP="${ETEMP#*$'\n'}"
-done
+if [ "$1" = "-all" ] ; then
+    ETEMP=$ENV
+    while [ "$ETEMP" ] ; do
+	echo "> ${ETEMP%%$'\n'*}"
+	ETEMP="${ETEMP#*$'\n'}"
+    done
+fi
 
 # Find our SKU, first check if it's there at all:
 if [[ "$ENV" =~ $SKUVAR= ]] ; then

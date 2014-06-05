@@ -31,46 +31,29 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 /*
 
-  pmorse.c
+  gpiotest.c
 
-  Toggles a GPIO pin, by default the one connected to the LED on the 
-  parallella board, to transmit a message in morse code.  This might
-  be useful, for example, in embedded applications where there may
-  not be an easily-accessible user interface.
+  Basic (i.e. incomplete!) test of the para_gpio system.  This code was used 
+    for debug during development of para_gpio.
 
-  See Usage() for invocation info, including that this may need to
-  be run as root.
 
-  To use the LED or other GPIO pin for something other than morse
-  code, see the functions in para_gpio.h.
-
+  Build:
+  gcc -o gpiotest gpiotest.c para_gpio.c -lrt -Wall
 */
 
-/*   To Build:
-  > make pmorse
-or
-  > gcc -o pmorse pmorse.c para_morse.c para_gpio.c -Wall
-*/
-
-// TODO:
-//
-//  - Can't really think of anything?
 
 #include <stdio.h>
 #include <ctype.h>
 #include <unistd.h>
 #include <stdlib.h>
-#include "para_morse.h"
+#include <time.h>
+#include "para_gpio.h"
 
 void Usage() {
 
-  printf("\nUsage: pmorse [-w W] [-g G] [-r R] \"string to send\"\n");
-  printf("    -w W - set rate to W words/min. (default 5)\n");
+  printf("\nUsage:  gpiotest -h  (show this help)\n");
+  printf("        gpiotest [-g G]\n");
   printf("    -g G - Use GPIO pin G (default 7)\n");
-  printf("    -r R - Repeat message R times (0 for 'forever')\n");
-  printf("    \"string to send\" is a single string surrounded by quotes.\n");
-  printf("                     Use <ab> for prosigns such as <SOS>.\n");
-  printf("                     Escape quotes in the string with \"\\\".\n");
   printf("\n");
   printf("Note: This application needs (probably root) access to /sys/class/gpio\n");
   printf("\n");
@@ -78,13 +61,15 @@ void Usage() {
 }
 
 int main(int argc, char *argv[]) {
-  int	i, c, rc;
-  int	wpm = 5, gpio = 7, repeat = 1;
+  int	n, i, c, rc;
+  int	gpio = 7;
   para_gpio  *pGpio;
+  struct timespec  tsStart, tsEnd;
+  double  dTimeElapsed;
 
-  printf("PMORSE - Morse-code generator for Parallella board\n\n");
+  printf("GPIOTEST - Basic test of para_gpio\n\n");
 
-  while ((c = getopt (argc, argv, "hw:g:r:")) != -1) {
+  while ((c = getopt (argc, argv, "hg:")) != -1) {
     switch (c) {
 
     case 'h':
@@ -97,25 +82,6 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "GPIO # must be > 0, exiting\n");
         exit(1);
       }
-      break;
-
-    case 'r':
-      repeat = atoi(optarg);
-      if(repeat < 0) {
-	fprintf(stderr, "Repeat value must be >= 0, exiting\n");
-	exit(1);
-      }
-      if(repeat == 0)
-	repeat = -1;  // 4e9 ~= "forever"
-      break;
-
-    case 'w':
-      i = atoi(optarg);
-      if(i<1 || i>120) {
-	fprintf(stderr, "Range for -w option is 1 to 120, exiting\n");
-	exit(1);
-      }
-      wpm = i;  // dot duration in milliseconds
       break;
 
     case '?':
@@ -135,34 +101,97 @@ int main(int argc, char *argv[]) {
     }
   }
 
-  if(optind >= argc) {
-	fprintf(stderr, "ERROR: please enter a string to transmit.\n");
-	exit(1);
-  }
-
-  if(optind < argc-1) {
-	fprintf(stderr, "ERROR: Please enter one string, enclosed in quotes\"\n");
-	exit(1);
-  }
-
   printf("Initializing...\n");
   if((rc = para_initgpio(&pGpio, gpio)) != para_ok) {
     fprintf(stderr, "para_initgpio() failed with code %d, exiting\n", rc);
     exit(1);
   }
+  printf("Success, pausing 5 seconds\n");
+  sleep(5);
+
+  printf("Setting direction (forces output to 0!)...\n");
   if((rc = para_dirgpio(pGpio, para_dirout)) != para_ok) {
     fprintf(stderr, "para_dirpgio() failed with code %d, exiting\n", rc);
     exit(1);
   }
 
-  printf("Sending string %s\n", argv[optind]);
+  printf("Pausing 5 seconds\n");
+  sleep(5);
 
-  while(repeat-- != 0)
-    para_morse(pGpio, argv[optind], wpm);
+  printf("Reading multiple times\n> ");
+  for(i=0; i<20; i++) {
+    if((rc = para_getgpio(pGpio, &c)) != para_ok)
+      printf("ERROR %d from para_getgpio()\n", rc);
+    else
+      printf("%d ", c);
+  }
 
-  // note this won't get called if user ctl-C's out, so gpio may remain exported
+  n = 100000;
+  printf("\nToggling pin %d times...\n", n);
+  clock_gettime(CLOCK_REALTIME, &tsStart);
+  for(i=0; i<n; i++) {
+    if((rc = para_setgpio(pGpio, i & 1)) != para_ok) {
+      printf("ERROR %d from para_setgpio()\n", rc);
+      break;
+    }
+  }
+  clock_gettime(CLOCK_REALTIME, &tsEnd);
+
+  if(rc == para_ok) {
+    dTimeElapsed = (double)(tsEnd.tv_sec - tsStart.tv_sec);
+    dTimeElapsed += (double)(tsEnd.tv_nsec - tsStart.tv_nsec) / 1.0e9;
+    printf("Took %.3lf seconds, %.0lf updates/sec\n", dTimeElapsed, n / dTimeElapsed);
+  }
+
+  printf("Write / Read test, %d times...\n", n);
+
+  clock_gettime(CLOCK_REALTIME, &tsStart);
+  for(i=0; i<n; i++) {
+
+    if((rc = para_setgpio(pGpio, i & 1)) != para_ok) {
+      printf("ERROR %d from para_setgpio()\n", rc);
+      break;
+    }
+    if((rc = para_getgpio(pGpio, &c)) != para_ok) {
+      printf("ERROR %d from para_getgpio()\n", rc);
+      break;
+    }
+    if(c != (i&1)) {
+      printf("Error, did not read same value as written!\n");
+      break;
+    }
+  }
+  clock_gettime(CLOCK_REALTIME, &tsEnd);
+
+  if(rc == para_ok) {
+    dTimeElapsed = (double)(tsEnd.tv_sec - tsStart.tv_sec);
+    dTimeElapsed += (double)(tsEnd.tv_nsec - tsStart.tv_nsec) / 1.0e9;
+    printf("Took %.3lf seconds, %.0lf ops/sec\n", dTimeElapsed, 2. * n / dTimeElapsed);
+  }
+
+  for(i=0; i<2; i++) {
+  
+    printf("Setting output to %d\n", i);
+    para_dirgpio(pGpio, para_dirout);
+    para_setgpio(pGpio, i);
+    sleep(1);
+
+    printf("Disabling output and monitoring input\n");
+    n = 0;
+    para_dirgpio(pGpio, para_dirin);
+    do {
+      para_getgpio(pGpio, &c);
+    } while(c == i && ++n < 10000);
+
+    if(c == i)
+      printf("Gave up waiting for the input to transition\n");
+    else
+      printf("Input flipped after %d cycles\n", n);
+
+  }
+
   printf("Closing\n");
-  para_closegpio(pGpio);
+  para_closegpio_ex(pGpio, true);  // always un-export the pin
 
   return 0;
 }

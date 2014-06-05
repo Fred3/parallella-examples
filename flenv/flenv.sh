@@ -23,6 +23,11 @@ if [ ! -b $FLASHNODE -a ! -c $FLASHNODE ] ; then
 fi
 
 ENV=`tail -c +$ENVSTART $FLASHNODE | head -c $ENVSIZE | tr -s "\0" "\n"`
+if [ "$ENV" == "" ] ; then
+    echo "Can't read from flash, did you sudo?"
+    exit 2;
+fi
+
 ENV+=$'\n'   # Make sure there is a \n at the end
 
 # I'm sure there is a more efficient way to do this,
